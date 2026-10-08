@@ -1,11 +1,11 @@
 use axum::{
-    Router,
+    Json, Router,
     extract::{Query, State},
-    http::StatusCode,
     response::IntoResponse,
     routing::post,
 };
 use chromiumoxide::{Browser, BrowserConfig};
+use chrono::NaiveDate;
 use futures::StreamExt;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
@@ -18,17 +18,24 @@ struct NafdacQuery {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct NafdacResponse {
     reg_no: String,
     found: bool,
     product: Option<ProductDetails>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
 struct ProductDetails {
     name: String,
+    source: String,
     category: String,
     manufacturer: String,
+    nafdac_no: String,
+    nafdac_expiration_date: NaiveDate,
+    nafdac_approval_date: NaiveDate,
+    active_ingredients: String,
 }
 
 #[derive(Debug)]
@@ -46,7 +53,7 @@ impl Drop for AppState {
 const NAFDAC_URL: &str = "https://registration.nafdac.gov.ng/";
 
 // scrapping
-async fn verify_product(browser: &Browser, reg_no: &str) -> Result<(), String> {
+async fn verify_product(browser: &Browser, reg_no: &str) -> Result<NafdacResponse, String> {
     let page = browser
         .new_page(NAFDAC_URL)
         .await
@@ -88,11 +95,75 @@ async fn verify_product(browser: &Browser, reg_no: &str) -> Result<(), String> {
     parse_result(&html, reg_no).await
 }
 
-async fn parse_result(html: &str, reg_no: &str) -> Result<(), String> {
+async fn parse_result(html: &str, reg_no: &str) -> Result<NafdacResponse, String> {
     let document = Html::parse_document(html);
-    println!("{:?}", document);
-    // let body_text = document.select(&Selector::parse("body").unwrap()).next().map(|el| el.text().collect()::<String>()).unwrap_or_default();
-    Ok(())
+
+    let body_text = document
+        .select(&Selector::parse("body").unwrap())
+        .next()
+        .map(|el| el.text().collect::<String>().to_lowercase())
+        .unwrap_or_default();
+
+    if body_text.contains("product not found") {
+        return Err("Product not found".to_string());
+    }
+
+    let mut details = ProductDetails::default();
+    let row_selector = Selector::parse("table tr").unwrap();
+    for row in document.select(&row_selector) {
+        let cells = row
+            .select(&Selector::parse("td").unwrap())
+            .map(|el| el.text().collect::<String>())
+            .collect::<String>();
+
+        let key_value = cells.splitn(2, ":").collect::<Vec<&str>>();
+        if key_value.len() >= 2 {
+            let label = key_value[0].to_lowercase();
+            let value = key_value[1];
+
+            if label.contains("product name") {
+                details.name = value.trim().to_string()
+            }
+
+            if label.contains("source") {
+                details.source = value.trim().to_string()
+            }
+
+            if label.contains("manufacturer") {
+                details.manufacturer = value.trim().to_string()
+            }
+
+            if label.contains("category") {
+                details.category = value.trim().to_string()
+            }
+
+            if label.contains("nafdac no") {
+                details.nafdac_no = value.trim().to_string()
+            }
+
+            if label.contains("expiry date") {
+                details.nafdac_expiration_date =
+                    NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d").expect("msg")
+            }
+
+            if label.contains("date approved") {
+                details.nafdac_approval_date =
+                    NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d").expect("msg")
+            }
+
+            if label.contains("active ingredient") {
+                details.active_ingredients = value.trim().to_string()
+            }
+        }
+    }
+
+    let response = NafdacResponse {
+        reg_no: reg_no.to_string(),
+        found: true,
+        product: Some(details),
+    };
+
+    Ok(response)
 }
 
 // handlers
@@ -102,12 +173,14 @@ async fn nafdac_lookup(
 ) -> impl IntoResponse {
     let reg_no = query.reg_no;
     if reg_no.is_empty() {
-        return StatusCode::NOT_FOUND;
+        return Json(NafdacResponse {
+            reg_no: reg_no.clone(),
+            found: false,
+            product: None,
+        });
     }
     let browser = state.browser.lock().await;
-    verify_product(&browser, &reg_no).await.unwrap();
-
-    StatusCode::OK
+    Json(verify_product(&browser, &reg_no).await.unwrap())
 }
 
 #[tokio::main]
