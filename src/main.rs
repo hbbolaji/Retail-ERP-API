@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::Mutex};
 
+use crate::error::{AppError, Result};
+
+mod error;
+
 #[derive(Debug, Deserialize)]
 struct NafdacQuery {
     reg_no: String,
@@ -53,49 +57,33 @@ impl Drop for AppState {
 const NAFDAC_URL: &str = "https://registration.nafdac.gov.ng/";
 
 // scrapping
-async fn verify_product(browser: &Browser, reg_no: &str) -> Result<NafdacResponse, String> {
-    let page = browser
-        .new_page(NAFDAC_URL)
-        .await
-        .map_err(|e| format!("failed to open page: {}", e))?;
+async fn verify_product(browser: &Browser, reg_no: &str) -> Result<NafdacResponse> {
+    let page = browser.new_page(NAFDAC_URL).await?;
 
     // input box
     let input_selector =
         "input[type='text'], input#CertificateNumber, input[name='CertificateNumber']";
     page.find_element(input_selector)
-        .await
-        .map_err(|e| format!("input box not found: {}", e))?
+        .await?
         .click()
-        .await
-        .map_err(|e| format!("click input: {}", e))?
+        .await?
         .type_str(reg_no)
-        .await
-        .map_err(|e| format!("type reg no: {}", e))?;
+        .await?;
 
     // button submission
     let button_selector = "button[data-action='submit']";
-    page.find_element(button_selector)
-        .await
-        .map_err(|e| format!("verify button not found: {}", e))?
-        .click()
-        .await
-        .map_err(|e| format!("click button: {}", e))?;
+    page.find_element(button_selector).await?.click().await?;
 
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    let html = page
-        .wait_for_navigation()
-        .await
-        .unwrap()
-        .content()
-        .await
-        .unwrap();
+    // page.wait_for_navigation().await.unwrap();
+    let html = page.wait_for_navigation().await?.content().await?;
 
     let _ = page.close().await;
 
     parse_result(&html, reg_no).await
 }
 
-async fn parse_result(html: &str, reg_no: &str) -> Result<NafdacResponse, String> {
+async fn parse_result(html: &str, reg_no: &str) -> Result<NafdacResponse> {
     let document = Html::parse_document(html);
 
     let body_text = document
@@ -105,7 +93,7 @@ async fn parse_result(html: &str, reg_no: &str) -> Result<NafdacResponse, String
         .unwrap_or_default();
 
     if body_text.contains("product not found") {
-        return Err("Product not found".to_string());
+        return Err(AppError::InternalError("product not found".to_string()));
     }
 
     let mut details = ProductDetails::default();
@@ -166,7 +154,6 @@ async fn parse_result(html: &str, reg_no: &str) -> Result<NafdacResponse, String
     Ok(response)
 }
 
-// handlers
 async fn nafdac_lookup(
     State(state): State<Arc<AppState>>,
     Query(query): Query<NafdacQuery>,
@@ -184,7 +171,7 @@ async fn nafdac_lookup(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     let (browser, mut handler) =
         Browser::launch(BrowserConfig::builder().no_sandbox().build().unwrap())
             .await
