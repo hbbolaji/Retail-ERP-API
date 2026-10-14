@@ -1,21 +1,16 @@
-use axum::{
-    Json, Router,
-    extract::{Query, State},
-    response::IntoResponse,
-    routing::post,
-};
+use axum::{Router, routing::post};
 use chromiumoxide::{Browser, BrowserConfig};
 
 use futures::StreamExt;
 
-use serde::Deserialize;
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::Mutex};
 
-use crate::{error::Result, handlers::nafdac_lookup};
+use crate::{error::Result, handlers::nafdac_lookup, routes::build_router};
 
 mod error;
 mod handlers;
+mod routes;
 mod scrapping;
 
 #[derive(Debug)]
@@ -50,9 +45,7 @@ async fn main() -> Result<()> {
         handler_task,
     });
 
-    let app = Router::new()
-        .route("/nafdac_lookup", post(nafdac_lookup))
-        .with_state(state);
+    let app = build_router(state);
 
     println!("Listening on Port 3000");
 
