@@ -12,17 +12,11 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::Mutex};
 
-use crate::error::Result;
-
-use scrapping::{NafdacResponse, verify_product};
+use crate::{error::Result, handlers::nafdac_lookup};
 
 mod error;
+mod handlers;
 mod scrapping;
-
-#[derive(Debug, Deserialize)]
-struct NafdacQuery {
-    reg_no: String,
-}
 
 #[derive(Debug)]
 struct AppState {
@@ -34,22 +28,6 @@ impl Drop for AppState {
     fn drop(&mut self) {
         self.handler_task.abort();
     }
-}
-
-async fn nafdac_lookup(
-    State(state): State<Arc<AppState>>,
-    Query(query): Query<NafdacQuery>,
-) -> impl IntoResponse {
-    let reg_no = query.reg_no;
-    if reg_no.is_empty() {
-        return Json(NafdacResponse {
-            reg_no: reg_no.clone(),
-            found: false,
-            product: None,
-        });
-    }
-    let browser = state.browser.lock().await;
-    Json(verify_product(&browser, &reg_no).await.unwrap())
 }
 
 #[tokio::main]
