@@ -1,12 +1,9 @@
-use axum::{Router, routing::post};
 use chromiumoxide::{Browser, BrowserConfig};
-
 use futures::StreamExt;
-
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::Mutex};
 
-use crate::{error::Result, handlers::nafdac_lookup, routes::build_router};
+use crate::{error::Result, routes::build_router};
 
 mod error;
 mod handlers;
@@ -27,10 +24,15 @@ impl Drop for AppState {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let (browser, mut handler) =
-        Browser::launch(BrowserConfig::builder().no_sandbox().build().unwrap())
-            .await
-            .unwrap();
+    let (browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .no_sandbox()
+            .arg("--profile.managed_default_content_settings.images=2")
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
 
     let handler_task = tokio::spawn(async move {
         while let Some(h) = handler.next().await {
