@@ -6,11 +6,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use chromiumoxide::error::CdpError;
-use scraper::{Selector, error::SelectorErrorKind};
+
 use serde::Serialize;
 use thiserror::Error;
-
-use crate::error;
 
 pub type Result<T> = result::Result<T, AppError>;
 
@@ -44,7 +42,6 @@ impl IntoResponse for AppError {
             Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             Self::InternalError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             Self::ChromeError(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
-            // Self::ScrapperError(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
         };
 
         let body = ErrorBody {
