@@ -1,6 +1,7 @@
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
-use std::sync::Arc;
+use sqlx::{PgConnection, PgPool, postgres::PgPoolOptions};
+use std::{env, sync::Arc};
 use tokio::{net::TcpListener, sync::Mutex};
 
 use crate::{error::Result, routes::build_router};
@@ -14,6 +15,7 @@ mod scrapping;
 struct AppState {
     browser: Mutex<Browser>,
     handler_task: tokio::task::JoinHandle<()>,
+    db: PgPool,
 }
 
 impl Drop for AppState {
@@ -24,6 +26,7 @@ impl Drop for AppState {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenvy::dotenv().unwrap();
     let (browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
             .no_sandbox()
@@ -42,9 +45,19 @@ async fn main() -> Result<()> {
         }
     });
 
+    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
+    let db = PgPoolOptions::new()
+        .min_connections(3)
+        .max_connections(10)
+        .connect(&db_url)
+        .await
+        .expect("database connection failed");
+
     let state = Arc::new(AppState {
         browser: Mutex::new(browser),
         handler_task,
+        db,
     });
 
     let app = build_router(state);
