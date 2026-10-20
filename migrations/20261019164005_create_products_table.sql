@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS products (
   id SERIAL PRIMARY KEY,
   name VARCHAR(200) NOT NULL,
-  barcode VARCHAR(200),
+  barcode VARCHAR(50),
   source VARCHAR(200),
   category VARCHAR(200),
   manufacturer VARCHAR(200),
